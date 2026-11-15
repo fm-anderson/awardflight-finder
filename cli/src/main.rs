@@ -15,7 +15,7 @@ use models::CabinFilter;
 use pricing::price_and_rank_flights;
 use runner::{LegQuery, run_leg_scrapers};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -77,6 +77,37 @@ fn validate_date(date_str: &str, flag_name: &str) -> Result<NaiveDate> {
             date_str, flag_name
         )
     })
+}
+
+fn resolve_output_path(
+    output: &Path,
+    depart_date: &str,
+    return_date: Option<&str>,
+) -> PathBuf {
+    let date_suffix = match return_date {
+        Some(ret) => format!("{}_{}", depart_date, ret),
+        None => depart_date.to_string(),
+    };
+
+    let stem = output
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("results");
+
+    if stem.contains(depart_date) {
+        return output.to_path_buf();
+    }
+
+    let ext = output.extension().and_then(|e| e.to_str());
+    let new_filename = match ext {
+        Some(e) if !e.is_empty() => format!("{}-{}.{}", stem, date_suffix, e),
+        _ => format!("{}-{}", stem, date_suffix),
+    };
+
+    match output.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(new_filename),
+        _ => PathBuf::from(new_filename),
+    }
 }
 
 #[tokio::main]
@@ -206,24 +237,25 @@ async fn main() -> Result<()> {
         });
 
     let markdown = render_markdown_report(&meta, &outbound_report, inbound_report.as_ref());
+    let output_path = resolve_output_path(&args.output, &depart_str, return_str.as_deref());
 
-    if let Some(parent) = args.output.parent()
+    if let Some(parent) = output_path.parent()
         && !parent.as_os_str().is_empty()
     {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create output directory {}", parent.display()))?;
     }
 
-    fs::write(&args.output, &markdown).with_context(|| {
+    fs::write(&output_path, &markdown).with_context(|| {
         format!(
             "Failed to write Markdown report to {}",
-            args.output.display()
+            output_path.display()
         )
     })?;
 
     eprintln!(
         "[cli] Wrote award flight report to {} (Outbound: {} option(s){})",
-        args.output.display(),
+        output_path.display(),
         outbound_priced.len(),
         return_data
             .as_ref()
@@ -232,4 +264,39 @@ async fn main() -> Result<()> {
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_output_path;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn appends_depart_date_to_output_filename() {
+        let path = resolve_output_path(Path::new("mia-bsb-direct.md"), "2026-12-10", None);
+        assert_eq!(path, PathBuf::from("mia-bsb-direct-2026-12-10.md"));
+    }
+
+    #[test]
+    fn appends_depart_and_return_dates_for_round_trip() {
+        let path = resolve_output_path(
+            Path::new("reports/mia-bsb-rt.md"),
+            "2026-12-10",
+            Some("2026-12-20"),
+        );
+        assert_eq!(
+            path,
+            PathBuf::from("reports/mia-bsb-rt-2026-12-10_2026-12-20.md")
+        );
+    }
+
+    #[test]
+    fn does_not_duplicate_date_when_already_present() {
+        let path = resolve_output_path(
+            Path::new("mia-bsb-direct-2026-12-10.md"),
+            "2026-12-10",
+            None,
+        );
+        assert_eq!(path, PathBuf::from("mia-bsb-direct-2026-12-10.md"));
+    }
 }
