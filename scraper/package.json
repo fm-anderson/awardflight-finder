@@ -1,15 +1,19 @@
 {
-  "name": "scraper",
+  "name": "awardflight-scraper",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "patchright": "^1.52.0"
   },
   "devDependencies": {
-    "typescript": "~7.0.2",
-    "vite": "^8.3.6"
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~7.0.2"
   }
 }
